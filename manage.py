@@ -16,7 +16,13 @@ def create_space(
     lon: float = typer.Option(None, help="Longitude"),
     contact_email: str = typer.Option(None, help="Contact email"),
     password: str = typer.Option(
-        None, help="Basic auth password (leave empty to prompt)")
+        None, help="Basic auth password (leave empty to prompt)"),
+    telegram_channel_id: str = typer.Option(
+        None, help="Telegram channel ID (optional)"),
+    telegram_bot_token: str = typer.Option(
+        None, help="Telegram bot token (optional)"),
+    telegram_enabled: bool = typer.Option(
+        False, help="Enable Telegram notifications")
 ):
     """Create a new space interactively or via CLI options."""
     if not name:
@@ -37,6 +43,15 @@ def create_space(
         contact_email = typer.prompt("Contact email (optional)", default=None)
     if not password:
         password = getpass("Basic auth password: ")
+    if not telegram_channel_id:
+        telegram_channel_id = typer.prompt(
+            "Telegram channel ID (optional)", default=None)
+    if not telegram_bot_token:
+        telegram_bot_token = typer.prompt(
+            "Telegram bot token (optional)", default=None)
+    if telegram_enabled is None:
+        telegram_enabled = typer.confirm(
+            "Enable Telegram notifications?", default=False)
     hashed_password = hash_password(password)
 
     with Session(engine) as session:
@@ -78,6 +93,25 @@ def delete_space(
             typer.echo(f"Space '{space.name}' deleted.")
         else:
             typer.echo("Deletion cancelled.")
+
+
+@app.command()
+def change_telegram_state(
+    space_id: int = typer.Argument(..., help="ID of the space to modify"),
+    enable: bool = typer.Option(..., "--enable/--disable",
+                                help="Enable or disable Telegram notifications")
+):
+    """Enable or disable Telegram notifications for a space."""
+    with Session(engine) as session:
+        space = session.get(Space, space_id)
+        if not space:
+            typer.echo("Space not found.")
+            raise typer.Exit(code=1)
+        space.telegram_enabled = enable
+        session.add(space)
+        session.commit()
+        state = "enabled" if enable else "disabled"
+        typer.echo(f"Telegram notifications {state} for space '{space.name}'.")
 
 
 if __name__ == "__main__":

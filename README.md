@@ -8,6 +8,20 @@ pip install -r requirements.txt
 fastapi dev main.py
 ```
 
+## Creating a new space
+
+You can use `manage.py` to add a new space to the database:
+
+```
+python manage.py create-space --help
+```
+
+## Deleting a space
+
+```
+python manage.py delete-space --help
+```
+
 ## Setting space status
 ```
 curl -X POST "http://localhost:8000/space_events/1/open" -u ModeemiDummySpace:dummy_password

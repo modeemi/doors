@@ -1,10 +1,16 @@
 from typing import Annotated
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status, BackgroundTasks
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from enum import Enum
 from datetime import datetime, timezone
 from argon2 import PasswordHasher
+import requests
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class SpaceEventState(str, Enum):
@@ -22,10 +28,13 @@ class SpacePublic(SQLModel):
     lat: float = Field(default=None, nullable=True)
     lon: float = Field(default=None, nullable=True)
     contact_email: str = Field(default=None, nullable=False)
+    telegram_channel_id: str = Field(default=None, nullable=True)
+    telegram_enabled: bool = Field(default=False, nullable=False)
 
 
 class Space(SpacePublic, table=True):
     basic_auth_password: str = Field()
+    telegram_bot_token: str = Field(default=None, nullable=True)
 
 
 class SpaceEvent(SQLModel, table=True):
@@ -59,6 +68,21 @@ def authenticate(credentials: HTTPBasicCredentials, session: Session, space: Spa
     if credentials.username != space.name:
         return False
     return True
+
+def send_telegram_message(space, space_event, session):
+    if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
+        return
+    message = f"'{space.name}' door is {space_event.state}."
+    url = f"https://api.telegram.org/bot{space.telegram_bot_token}/sendMessage"
+    payload = {
+        "chat_id": space.telegram_channel_id,
+        "text": message
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Telegram message: {e}")
 
 
 sqlite_file_name = "database.db"
@@ -149,6 +173,8 @@ def open_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPBa
     session.add(event)
     session.commit()
     session.refresh(event)
+    logger.info(f"Space '{space.name}' opened.")
+    send_telegram_message(space, event, session)
     return event
 
 
@@ -162,6 +188,8 @@ def close_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPB
     session.add(event)
     session.commit()
     session.refresh(event)
+    logger.info(f"Space '{space.name}' closed.")
+    send_telegram_message(space, event, session)
     return event
 
 
