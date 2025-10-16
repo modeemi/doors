@@ -1,8 +1,10 @@
+import json
 import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select, text
 from main import SpaceEvent, app, Space, hash_password
+from jsonschema import validate
 
 TEST_DB = "sqlite:///test_database.db"
 
@@ -72,13 +74,14 @@ def test_read_space_by_name():
     data = response.json()
     assert data["name"] == "TestSpace"
 
-# def test_create_space_event_auth_fail():
-#     response = client.post(
-#         "/space_events/",
-#         json={"space_id": 1, "state": "open"},
-#         auth=("TestSpace", "wrongpass")
-#     )
-#     assert response.status_code == 403
+
+def test_create_space_event_auth_fail():
+    response = client.post(
+        "/space_events/",
+        json={"space_id": 1, "state": "open"},
+        auth=("TestSpace", "wrongpass")
+    )
+    assert response.status_code == 403
 
 
 def test_create_space_event_success():
@@ -132,4 +135,21 @@ def test_space_api():
     assert data["space"] == "TestSpace"
 
 
-# TODO: add Space API schema validation tests
+def test_space_api_schema():
+    # Post an event to have some data
+    client.post(
+        "/space_events/",
+        json={"space_id": 1, "state": "open"},
+        auth=("TestSpace", "testpass")
+    )
+    response = client.get("/space/TestSpace/space.json")
+    assert response.status_code == 200
+    data = response.json()
+    # Read the schema file
+    with open("schema/15.json") as f:
+        schema = f.read()
+    schema_json = json.loads(schema)
+    try:
+        validate(instance=data, schema=schema_json)
+    except Exception as e:
+        pytest.fail(f"JSON schema validation failed: {e}")

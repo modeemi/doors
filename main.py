@@ -90,7 +90,6 @@ def on_startup():
     with Session(engine) as session:
         space = session.exec(select(Space).where(Space.id == 1)).first()
         if not space:
-            # Hash the password using hashlib with blake 2b with salt
             hashed_password = hash_password("dummy_password")
             default_space = Space(
                 id=1,
@@ -132,7 +131,8 @@ def read_space_by_name(space_name: str, session: SessionDep) -> Space:
 def create_space_event(event: SpaceEvent, session: SessionDep, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> SpaceEvent:
     space = session.get(Space, event.space_id)
     if not space or not authenticate(credentials, session, space):
-        raise HTTPException(status_code=status.H, detail="Forbidden")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,  detail="Forbidden")
     session.add(event)
     session.commit()
     session.refresh(event)
