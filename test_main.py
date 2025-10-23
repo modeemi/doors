@@ -75,24 +75,12 @@ def test_read_space_by_name():
     assert data["name"] == "TestSpace"
 
 
-def test_create_space_event_auth_fail():
+def test_open_space_event_auth_fail():
     response = client.post(
-        "/space_events/",
-        json={"space_id": 1, "state": "open"},
+        "/space_events/1/open",
         auth=("TestSpace", "wrongpass")
     )
     assert response.status_code == 403
-
-
-def test_create_space_event_success():
-    response = client.post(
-        "/space_events/",
-        json={"space_id": 1, "state": "open"},
-        auth=("TestSpace", "testpass")
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["state"] == "open"
 
 
 def test_open_space():
@@ -117,9 +105,8 @@ def test_close_space():
 
 def test_read_latest_space_event():
     # First, create an event
-    client.post(
-        "/space_events/",
-        json={"space_id": 1, "state": "open"},
+    response = client.post(
+        "/space_events/1/open",
         auth=("TestSpace", "testpass")
     )
     response = client.get("/space_events/1/latest")
@@ -137,9 +124,8 @@ def test_space_api():
 
 def test_space_api_schema():
     # Post an event to have some data
-    client.post(
-        "/space_events/",
-        json={"space_id": 1, "state": "open"},
+    response = client.post(
+        "/space_events/1/open",
         auth=("TestSpace", "testpass")
     )
     response = client.get("/space/TestSpace/space.json")

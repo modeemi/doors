@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from argon2 import PasswordHasher
 import requests
 import logging
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,7 +73,7 @@ def authenticate(credentials: HTTPBasicCredentials, session: Session, space: Spa
 def send_telegram_message(space, space_event, session):
     if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
         return
-    message = f"'{space.name}' door is {space_event.state}."
+    message = f"'{space.name}' door is {space_event.state.value}."
     url = f"https://api.telegram.org/bot{space.telegram_bot_token}/sendMessage"
     payload = {
         "chat_id": space.telegram_channel_id,
@@ -81,6 +82,7 @@ def send_telegram_message(space, space_event, session):
     try:
         response = requests.post(url, data=payload)
         response.raise_for_status()
+        logger.info("Telegram message sent successfully for space '{space.name}' for event '{space_event.state.value}'.")
     except requests.RequestException as e:
         logger.error(f"Failed to send Telegram message: {e}")
 
@@ -101,14 +103,8 @@ def get_session():
         yield session
 
 
-SessionDep = Annotated[Session, Depends(get_session)]
-
-app = FastAPI()
-security = HTTPBasic()
-
-
-@app.on_event("startup")
-def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     create_db_and_tables()
     # Create a default space for testing
     with Session(engine) as session:
@@ -133,7 +129,12 @@ def on_startup():
                 space_id=1, state=SpaceEventState.UNKNOWN)
             session.add(initial_event)
             session.commit()
+    yield
 
+SessionDep = Annotated[Session, Depends(get_session)]
+
+app = FastAPI(lifespan=lifespan)
+security = HTTPBasic()
 
 @app.get("/space/by_id/{space_id}", response_model=SpacePublic)
 def read_space(space_id: int, session: SessionDep) -> Space:
@@ -151,20 +152,8 @@ def read_space_by_name(space_name: str, session: SessionDep) -> Space:
     return space
 
 
-@app.post("/space_events/")
-def create_space_event(event: SpaceEvent, session: SessionDep, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> SpaceEvent:
-    space = session.get(Space, event.space_id)
-    if not space or not authenticate(credentials, session, space):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,  detail="Forbidden")
-    session.add(event)
-    session.commit()
-    session.refresh(event)
-    return event
-
-
 @app.post("/space_events/{space_id}/open", response_model=SpaceEvent)
-def open_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> SpaceEvent:
+async def open_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPBasicCredentials, Depends(security)], background_tasks: BackgroundTasks) -> SpaceEvent:
     space = session.get(Space, space_id)
     if not authenticate(credentials, session, space):
         raise HTTPException(
@@ -174,12 +163,12 @@ def open_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPBa
     session.commit()
     session.refresh(event)
     logger.info(f"Space '{space.name}' opened.")
-    send_telegram_message(space, event, session)
+    background_tasks.add_task(send_telegram_message, space, event, session)
     return event
 
 
 @app.post("/space_events/{space_id}/close", response_model=SpaceEvent)
-def close_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> SpaceEvent:
+def close_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPBasicCredentials, Depends(security)], background_tasks: BackgroundTasks) -> SpaceEvent:
     space = session.get(Space, space_id)
     if not authenticate(credentials, session, space):
         raise HTTPException(
@@ -189,7 +178,7 @@ def close_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPB
     session.commit()
     session.refresh(event)
     logger.info(f"Space '{space.name}' closed.")
-    send_telegram_message(space, event, session)
+    background_tasks.add_task(send_telegram_message, space, event, session)
     return event
 
 
