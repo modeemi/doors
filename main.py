@@ -45,6 +45,7 @@ class SpaceEvent(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc), index=True)
     state: SpaceEventState = Field(
         sa_column_kwargs={"default": SpaceEventState.UNKNOWN})
+    telegram_message_id: int | None = Field(default=None, nullable=True)
 
 
 def hash_password(password: str) -> str:
@@ -70,7 +71,9 @@ def authenticate(credentials: HTTPBasicCredentials, session: Session, space: Spa
         return False
     return True
 
+
 def send_telegram_message(space, space_event, session):
+    """Send Telegram message about space event"""
     if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
         return
     message = f"'{space.name}' door is {space_event.state.value}."
@@ -82,9 +85,43 @@ def send_telegram_message(space, space_event, session):
     try:
         response = requests.post(url, data=payload)
         response.raise_for_status()
-        logger.info("Telegram message sent successfully for space '{space.name}' for event '{space_event.state.value}'.")
+        # Save the message ID to the event
+        resp_json = response.json()
+        if resp_json.get("ok"):
+            message_id = resp_json["result"]["message_id"]
+            space_event.telegram_message_id = message_id
+            session.add(space_event)
+            session.commit()
+        logger.info(
+            f"Telegram message sent successfully for space '{space.name}' for event '{space_event.state.value}'.")
     except requests.RequestException as e:
         logger.error(f"Failed to send Telegram message: {e}")
+
+
+def delete_telegram_message(space, session):
+    """Delete previous Telegram message about space event"""
+    if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
+        return
+    # Get the latest event with telegram_message_id
+    latest_event = session.exec(
+        select(SpaceEvent)
+        .where(SpaceEvent.space_id == space.id, SpaceEvent.telegram_message_id != None)
+        .order_by(SpaceEvent.timestamp.desc())
+    ).first()
+    if not latest_event:
+        return
+    url = f"https://api.telegram.org/bot{space.telegram_bot_token}/deleteMessage"
+    payload = {
+        "chat_id": space.telegram_channel_id,
+        "message_id": latest_event.telegram_message_id
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()
+        logger.info(
+            f"Telegram message deleted successfully for space '{space.name}'.")
+    except requests.RequestException as e:
+        logger.error(f"Failed to delete Telegram message: {e}")
 
 
 sqlite_file_name = "database.db"
@@ -136,6 +173,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 app = FastAPI(lifespan=lifespan)
 security = HTTPBasic()
 
+
 @app.get("/space/by_id/{space_id}", response_model=SpacePublic)
 def read_space(space_id: int, session: SessionDep) -> Space:
     space = session.get(Space, space_id)
@@ -163,6 +201,7 @@ async def open_space(space_id: int, session: SessionDep, credentials: Annotated[
     session.commit()
     session.refresh(event)
     logger.info(f"Space '{space.name}' opened.")
+    delete_telegram_message(space, session)
     background_tasks.add_task(send_telegram_message, space, event, session)
     return event
 
@@ -178,6 +217,7 @@ def close_space(space_id: int, session: SessionDep, credentials: Annotated[HTTPB
     session.commit()
     session.refresh(event)
     logger.info(f"Space '{space.name}' closed.")
+    delete_telegram_message(space, session)
     background_tasks.add_task(send_telegram_message, space, event, session)
     return event
 
