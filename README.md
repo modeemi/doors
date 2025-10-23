@@ -1,3 +1,5 @@
+Python server that receives door events, sends Telegram messages based on them and exposes [SpaceAPI](https://spaceapi.io/) endpoints.
+
 
 ## How to dev
 
@@ -7,6 +9,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 fastapi dev main.py
 ```
+
+OpenAPI docs will be at [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ## Creating a new space
 
