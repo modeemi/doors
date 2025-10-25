@@ -1,4 +1,8 @@
+## About
+
 Python server that receives door events, sends Telegram messages based on them and exposes [SpaceAPI](https://spaceapi.io/) endpoints.
+There was a need for a centralized information system about the student associations spaces being open - and available to visit.
+The information should be easily accessible, that's why there is integration with Telegram available.
 
 
 ## How to dev
