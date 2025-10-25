@@ -13,21 +13,8 @@
 #include <WiFiClientSecureBearSSL.h>
 
 #include "certs.h"
+#include "IoTvars.h" // change name of file IoTvars_default.h to IoTvars.h
 
-#define DOOR_SERVER "https://doors.modeemi.fi"
-
-#ifndef STASSID
-#define STASSID "ModeemIoT"
-#define STAPSK "replaceME"
-#endif
-
-#ifndef SPACEID
-#define SPACEID "1"
-#endif
-
-
-#define WEB_USER "ModeemiDummySpace"
-#define WEB_PASS "dummy_password"
 
 
 
