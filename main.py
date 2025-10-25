@@ -1,5 +1,7 @@
 from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Query, status, BackgroundTasks
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from enum import Enum
@@ -173,6 +175,11 @@ SessionDep = Annotated[Session, Depends(get_session)]
 app = FastAPI(lifespan=lifespan)
 security = HTTPBasic()
 
+app.mount("/site", StaticFiles(directory="site", html = True), name="site")
+
+@app.get("/")
+def main_page():
+    return RedirectResponse(url="/site/index.html")
 
 @app.get("/space/by_id/{space_id}", response_model=SpacePublic)
 def read_space(space_id: int, session: SessionDep) -> Space:
