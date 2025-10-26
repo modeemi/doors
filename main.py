@@ -1,6 +1,7 @@
 from typing import Annotated
-from fastapi import Depends, FastAPI, HTTPException, Query, status, BackgroundTasks
-from fastapi.responses import RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, status, BackgroundTasks, Request
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlmodel import Field, Session, SQLModel, create_engine, select
@@ -172,16 +173,46 @@ async def lifespan(app: FastAPI):
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
-app = FastAPI(lifespan=lifespan)
+
+app = FastAPI(lifespan=lifespan,
+    docs_url=None,     # disables Swagger UI
+    redoc_url=None,    # disables ReDoc
+    openapi_url=None   # optionally disables the OpenAPI schema endpoint
+)
+
+
 security = HTTPBasic()
 
-app.mount("/site", StaticFiles(directory="site", html = True), name="site")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+# app.mount("/site", StaticFiles(directory="site", html = True), name="site")
+templates = Jinja2Templates(directory="templates")
+
 
 @app.get("/")
 def main_page():
-    return RedirectResponse(url="/site/index.html")
+    return RedirectResponse(url="/status")
 
-@app.get("/space/by_id/{space_id}", response_model=SpacePublic)
+@app.get("/status")
+def status(request: Request, session: SessionDep):
+    spaces_from_db = session.exec(select(Space)).all()
+    spaces_dict = {}
+    spaces_counter = 1
+    for space_idx in spaces_from_db:
+        latest_event = session.exec(select(SpaceEvent).where(SpaceEvent.space_id == space_idx.id)).first()
+        if latest_event.state == SpaceEventState.OPEN:
+            current_state = "open"
+        elif latest_event.state == SpaceEventState.CLOSED:
+            current_state = "closed"
+        else:
+            current_state = "unknown"
+        spaces_dict[spaces_counter] = {"id": space_idx.id, "name":space_idx.name, "state":current_state}
+        spaces_counter = spaces_counter + 1
+    return templates.TemplateResponse(
+        request=request, name="index.html", context={"id": id, "spaces": spaces_dict}
+    )
+
+
+@app.get("/space/by_id/{space_id}")
 def read_space(space_id: int, session: SessionDep) -> Space:
     space = session.get(Space, space_id)
     if not space:

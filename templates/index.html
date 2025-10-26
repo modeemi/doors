@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>doors.modeemi.fi</title>
+
+  <!-- Bootstrap CSS -->
+  <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+
+  <div class="container mt-5">
+    <h1 class="text-center">doors.modeemi.fi</h1>
+    <p class="text-center">Is your student association's space open right now?</p>
+  </div>
+
+  <div class="container mt-5">
+    <table class="table w-50 mx-auto">
+    <thead>
+        <tr>
+        <th scope="col">#</th>
+        <th scope="col">Id</th>
+        <th scope="col">Association's name</th>
+        <th scope="col">Space status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for key in spaces.keys() %}
+        <tr>
+            <th scope="row">{{ loop.index }}</th>
+            <td>{{ spaces[key]["id"] }}</td>
+            <td>{{ spaces[key]["name"] }}</td>
+            <td>{{ spaces[key]["state"] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    </table>
+  </div>
+
+
+  <div class="container mt-5">
+    <p class="text-center">doors.modeemi.fi is a service meant mainly for a student associations at Tampere University, which shows is the association space is open, so You know if it's possible to visit the space. The web application was created by Tsuribori, an IoT part by Niko, idea proposed by Rowan and the server is hosted on Modeemi Ry's infrastructure, an IT Hobby Club operating at Tampere University (form. Tampere University of Technology) since 1977.
+</p>
+  </div>
+
+  <!-- Bootstrap JS Bundle (includes Popper) -->
+  <script src="/static/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>
