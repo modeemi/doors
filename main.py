@@ -211,6 +211,10 @@ def status(request: Request, session: SessionDep):
         request=request, name="index.html", context={"id": id, "spaces": spaces_dict}
     )
 
+@app.get("/tech")
+def tech(request: Request):
+    return templates.TemplateResponse(request=request, name="tech.html")
+
 
 @app.get("/space/by_id/{space_id}")
 def read_space(space_id: int, session: SessionDep) -> Space:

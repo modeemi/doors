@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>doors.modeemi.fi [IN DEVELOPMENT!]</title>
+
+  <!-- Bootstrap CSS -->
+  <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .narrow-container {
+      max-width: 1200px;  /* narrower width */
+      margin-left: auto;  /* centers horizontally */
+      margin-right: auto;
+      padding: 20px;      /* optional padding */
+    }
+  .tiny-text {
+    font-size: 12px;
+  }
+  .not-that-tiny-text {
+    font-size: 12px;
+  }
+  </style>
+</head>
+<body>
+
+  <div class="container mt-5">
+    <h1 class="text-center">doors.modeemi.fi</h1>
+    <p class="text-center">Technical description</p>
+  </div>
+
+  <div class="container-md narrow-container tiny-text">
+    <h5 class="text-center">Introduction</h5>
+    <p class="text-center">The projects purpose is gather information about status of all the clubrooms (Open, Close, Unknown), and present them in a <a href="/status">human-readable format</a>, on a selected Telegram channel, but also as an Open API (we reserve the right to introduce rate-limiting in case of abuses). It is made so that everyone can integrate the clubroom status into their app / software, let it be a simple LED light which indicated if the clubroom is open, or the sophisticated mobile app.</p>
+  </div>
+
+  <div class="container-md narrow-container tiny-text">
+    <h5 class="text-center">API</h5>
+    <p class="text-center">Available commands are:</p>
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">URL</th>
+          <th scope="col">Description</th>
+          <th scope="col">Authentication required</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">1</th>
+          <td>/space/{space_name}/space.json</td>
+          <td>Get information on space (described with name) in json format</td>
+          <td>No</td>
+        </tr>
+        <tr>
+          <th scope="row">2</th>
+          <td>/space_events/{space_id}/open</td>
+          <td>Mark space (described with numerical id) as open </td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <th scope="row">3</th>
+          <td>/space_events/{space_id}/close</td>
+          <td>Mark space (described with numerical id) as close </td>
+          <td>Yes</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="text-center">Authentication is basic HTTP one, with credentials provided by Modeemi. </p>
+  </div>
+
+  <div class="container-md narrow-container tiny-text">
+    <h5 class="text-center">API examples</h5>
+    <p class="text-center">Basic examples provided in cURL:</p>
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Command</th>
+          <th scope="col">Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">1</th>
+          <td>curl -X GET https://www.doors.modeemi.fi/space/{space_name}/space.json</td>
+          <td>Get information on space (described with name) in json format</td>
+        </tr>
+        <tr>
+          <th scope="row">2</th>
+          <td>curl -X POST https://www.doors.modeemi.fi/space_events/{space_id}/open --user "{login}:{pass}"</td>
+          <td>Mark space (described with numerical id) as open </td>
+        </tr>
+        <tr>
+          <th scope="row">3</th>
+          <td>curl -X POST https://www.doors.modeemi.fi/space_events/{space_id}/close --user "{login}:{pass}"</td>
+          <td>Mark space (described with numerical id) as closed </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="text-center">Authentication is basic HTTP one, with credentials provided by Modeemi. </p>
+  </div>
+
+  <!-- Bootstrap JS Bundle (includes Popper) -->
+  <script src="/static/js/bootstrap.bundle.min.js"></script>
+
+
+</body>
+</html>

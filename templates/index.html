@@ -7,6 +7,14 @@
 
   <!-- Bootstrap CSS -->
   <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .narrow-container {
+      max-width: 600px;  /* narrower width */
+      margin-left: auto;  /* centers horizontally */
+      margin-right: auto;
+      padding: 20px;      /* optional padding */
+    }
+  </style>
 </head>
 <body>
 
@@ -14,14 +22,15 @@
     <h1 class="text-center">doors.modeemi.fi</h1>
     <p class="text-center">Is your student association's space open right now?</p>
     <p class="text-center">[IN DEVELOPMENT!]</p>
+    <p class="text-center not-that-tiny-text">Also on telegram</p>
   </div>
 
-  <div class="container mt-5">
-    <table class="table w-50 mx-auto">
+  <div class="container-md narrow-container">
+    <table class="table mx-auto text-center table-bordered">
     <thead>
         <tr>
-        <th scope="col">#</th>
-        <th scope="col">Id</th>
+        <!-- <th scope="col">#</th>  -->
+        <!-- <th scope="col">Id</th>  -->
         <th scope="col">Association's name</th>
         <th scope="col">Space status</th>
         </tr>
@@ -29,8 +38,8 @@
     <tbody>
         {% for key in spaces.keys() %}
         <tr>
-            <th scope="row">{{ loop.index }}</th>
-            <td>{{ spaces[key]["id"] }}</td>
+            <!-- <th scope="row">{{ loop.index }}</th> -->
+            <!-- <td>{{ spaces[key]["id"] }}</td> -->
             <td>{{ spaces[key]["name"] }}</td>
             <td>{{ spaces[key]["state"] }}</td>
         </tr>
@@ -40,13 +49,37 @@
   </div>
 
 
-  <div class="container mt-5">
-    <p class="text-center">doors.modeemi.fi is a service meant mainly for a student associations at Tampere University, which shows is the association space is open, so You know if it's possible to visit the space. The web application was created by Tsuribori, an IoT part by Niko, idea proposed by Rowan and the server is hosted inside Modeemi Ry's infrastructure, an IT Hobby Club operating at Tampere University (form. Tampere University of Technology) since 1977.
-</p>
+  <div class="container-md narrow-container tiny-text">
+    <h5 class="text-center">About</h5>
+    <p class="text-center tiny-text" >doors.modeemi.fi is a service meant mainly for a student associations at Tampere University, which shows if the association space is open, so You know if it's possible to visit the space. This is basically next iteration of project "Hervanta-Bots". If You wanna know more about the projects, read our <a href="/tech">technical description</a>.
+    </p>
+  </div>
+  <div class="container-md narrow-container tiny-text">
+    <h5 class="text-center">Credits</h5>
+    <ul class="list-group list-group-flush">
+      <li class="list-group-item">Tuomas "Tsuribori" Rinne - main web developer</li>
+      <li class="list-group-item">Nikoloz "Niko" Glonti - IoT developer + assistant web developer + Sysadmin</li>
+      <li class="list-group-item">Rowan van der Kaaden - developer of the original "Hervanta-bots"</li>
+    </ul>
+    Project is part of Modeemi Ry's services. Modeemi is an IT Hobby Club operating at Tampere University (form. Tampere University of Technology) since 1977.
+
+  </div>
+
+  <div class="container-md narrow-container tiny-text">
+    <h5 class="text-center">Wanna join?</h5>
+    Associations can be added to the system, just text us at: hallitus@modeemi.fi. Students interested in contributing to the project are also welcome!
   </div>
 
   <!-- Bootstrap JS Bundle (includes Popper) -->
   <script src="/static/js/bootstrap.bundle.min.js"></script>
 
+  <style>
+  .tiny-text {
+    font-size: 12px;
+  }
+  .not-that-tiny-text {
+    font-size: 14px;
+  }
+  </style>
 </body>
 </html>
