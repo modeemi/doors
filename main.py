@@ -197,21 +197,60 @@ async def lifespan(app: FastAPI):
                 space_id=1, state=SpaceEventState.UNKNOWN)
             session.add(initial_event)
             session.commit()
-    task = asyncio.create_task(scheduled_task())
+    keepalive_task = asyncio.create_task(scheduled_task())
+    resend_task = asyncio.create_task(scheduled_resend_task())
     yield
-    # Cleanup: cancel task on shutdown
-    task.cancel()
+    # Cleanup: cancel tasks on shutdown
+    keepalive_task.cancel()
+    resend_task.cancel()
     try:
-        await task
+        await keepalive_task
+        await resend_task
     except asyncio.CancelledError:
         pass
-
 
 async def scheduled_task():
     while True:
         await asyncio.sleep(KEEPALIVE_INTERVAL)
         with Session(engine) as session:
             await check_keepalives(session)
+
+
+RESEND_INTERVAL = int(
+    os.getenv("RESEND_INTERVAL", "86400"))  # default 86400 seconds (24 hours)
+
+
+async def scheduled_resend_task():
+    """Periodically delete and resend Telegram messages for all spaces."""
+    while True:
+        await asyncio.sleep(RESEND_INTERVAL)
+        with Session(engine) as session:
+            await resend_telegram_messages(session)
+
+
+async def resend_telegram_messages(session: Session):
+    """Delete and resend the latest Telegram message for each space."""
+    spaces = session.exec(select(Space)).all()
+    logger.info("Starting daily Telegram message resend.")
+    for space in spaces:
+        if not space.telegram_enabled:
+            continue
+        latest_event = session.exec(
+            select(SpaceEvent)
+            .where(SpaceEvent.space_id == space.id)
+            .order_by(SpaceEvent.timestamp.desc())
+        ).first()
+        if not latest_event:
+            continue
+        try:
+            delete_telegram_message(space, session)
+            send_telegram_message(space, latest_event, session)
+            logger.info(
+                f"Resent Telegram message for space '{space.name}' with state '{latest_event.state.value}'.")
+        except Exception as e:
+            logger.error(
+                f"Failed to resend Telegram message for space '{space.name}': {e}")
+    logger.info("Daily Telegram message resend completed.")
 
 
 async def check_keepalives(session):
