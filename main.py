@@ -104,7 +104,12 @@ def send_telegram_message(space, space_event, session):
     """Send Telegram message about space event"""
     if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
         return
-    message = f"{space.name} door is {space_event.state.value}."
+    if space_event.state == SpaceEventState.OPEN:
+        message = f"{space.name}: {space_event.state.value} 🟢"
+    elif space_event.state == SpaceEventState.CLOSED:
+        message = f"{space.name}: {space_event.state.value} 🔴"
+    else:
+        message = f"{space.name}: {space_event.state.value} 👽"
     url = f"https://api.telegram.org/bot{space.telegram_bot_token}/sendMessage"
     payload = {
         "chat_id": space.telegram_channel_id,
