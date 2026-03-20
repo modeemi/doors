@@ -216,9 +216,13 @@ async def lifespan(app: FastAPI):
 
 async def scheduled_task():
     while True:
-        await asyncio.sleep(KEEPALIVE_INTERVAL)
-        with Session(engine) as session:
-            await check_keepalives(session)
+        try:
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+            with Session(engine) as session:
+                await check_keepalives(session)
+        except Exception as e:
+            logger.error(e)
+
 
 
 RESEND_INTERVAL = int(
@@ -228,10 +232,12 @@ RESEND_INTERVAL = int(
 async def scheduled_resend_task():
     """Periodically delete and resend Telegram messages for all spaces."""
     while True:
-        await asyncio.sleep(RESEND_INTERVAL)
-        with Session(engine) as session:
-            await resend_telegram_messages(session)
-
+        try:
+            await asyncio.sleep(RESEND_INTERVAL)
+            with Session(engine) as session:
+                await resend_telegram_messages(session)
+        except Exception as e:
+            logger.error(e)
 
 async def resend_telegram_messages(session: Session):
     """Delete and resend the latest Telegram message for each space."""
