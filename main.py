@@ -18,6 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 import asyncio
 import os
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -100,9 +101,63 @@ def authenticate(credentials: HTTPBasicCredentials, session: Session, space: Spa
     return True
 
 
+TELEGRAM_TIMEOUT = 10  # seconds
+
+# One lock per space, so that a quick close/open flap cannot interleave one
+# request's delete with another request's send.
+_telegram_locks: dict[int, threading.Lock] = {}
+_telegram_locks_guard = threading.Lock()
+
+
+def telegram_lock(space_id: int) -> threading.Lock:
+    """Return the lock guarding Telegram traffic for a single space"""
+    with _telegram_locks_guard:
+        lock = _telegram_locks.get(space_id)
+        if lock is None:
+            lock = threading.Lock()
+            _telegram_locks[space_id] = lock
+        return lock
+
+
+def telegram_configured(space) -> bool:
+    return bool(space.telegram_enabled and space.telegram_bot_token and space.telegram_channel_id)
+
+
+def latest_space_event(session, space_id):
+    """Return the most recent event of a space"""
+    return session.exec(
+        select(SpaceEvent)
+        .where(SpaceEvent.space_id == space_id)
+        .order_by(SpaceEvent.timestamp.desc(), SpaceEvent.id.desc())
+    ).first()
+
+
+def publish_telegram_state(space_id: int, event_id: int):
+    """Replace a space's current Telegram message with one for the given event.
+
+    Delete and send happen together under the space's lock, so the message id of
+    the message being replaced is always up to date. Runs as a background task.
+    """
+    with telegram_lock(space_id):
+        with Session(engine) as session:
+            space = session.get(Space, space_id)
+            if not space or not telegram_configured(space):
+                return
+            space_event = session.get(SpaceEvent, event_id)
+            if not space_event:
+                return
+            latest_event = latest_space_event(session, space_id)
+            if latest_event and latest_event.id != space_event.id:
+                logger.info(
+                    f"Skipping Telegram message for space '{space.name}' event '{space_event.state.value}': superseded by a newer event.")
+                return
+            delete_telegram_message(space, session)
+            send_telegram_message(space, space_event, session)
+
+
 def send_telegram_message(space, space_event, session):
     """Send Telegram message about space event"""
-    if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
+    if not telegram_configured(space):
         return
     if space_event.state == SpaceEventState.OPEN:
         message = f"{space.name}: {space_event.state.value} 🟢"
@@ -116,7 +171,7 @@ def send_telegram_message(space, space_event, session):
         "text": message
     }
     try:
-        response = requests.post(url, data=payload)
+        response = requests.post(url, data=payload, timeout=TELEGRAM_TIMEOUT)
         response.raise_for_status()
         # Save the message ID to the event
         resp_json = response.json()
@@ -132,36 +187,39 @@ def send_telegram_message(space, space_event, session):
 
 
 def delete_telegram_message(space, session):
-    logger.info(
-        f"(1) Telegram message tried to be deleted for space '{space.name}'.")
     """Delete previous Telegram message about space event"""
-    if not space.telegram_enabled or not space.telegram_bot_token or not space.telegram_channel_id:
+    if not telegram_configured(space):
         return
     # Get the latest event with telegram_message_id
-    logger.info(
-        f" (2) Telegram message tried to be deleted for space '{space.name}'.")
     latest_event = session.exec(
         select(SpaceEvent)
         .where(SpaceEvent.space_id == space.id, SpaceEvent.telegram_message_id != None)
-        .order_by(SpaceEvent.timestamp.desc())
+        .order_by(SpaceEvent.timestamp.desc(), SpaceEvent.id.desc())
     ).first()
     if not latest_event:
         return
-    logger.info(
-        f" (3) Telegram message tried to be deleted for space '{space.name}'.")
+    message_id = latest_event.telegram_message_id
+    # Forget the message before asking Telegram to delete it: on success it is
+    # gone, and on failure Telegram will not delete it later either. Either way
+    # it must never be picked as the message to delete a second time.
+    latest_event.telegram_message_id = None
+    session.add(latest_event)
+    session.commit()
+
     url = f"https://api.telegram.org/bot{space.telegram_bot_token}/deleteMessage"
 
     payload = {
         "chat_id": space.telegram_channel_id,
-        "message_id": latest_event.telegram_message_id
+        "message_id": message_id
     }
     try:
-        response = requests.post(url, data=payload)
+        response = requests.post(url, data=payload, timeout=TELEGRAM_TIMEOUT)
         response.raise_for_status()
         logger.info(
             f"Telegram message deleted successfully for space '{space.name}'.")
     except requests.RequestException as e:
-        logger.error(f"Failed to delete Telegram message: {e}")
+        logger.warning(
+            f"Failed to delete Telegram message {message_id} for space '{space.name}': {e}")
 
 
 sqlite_file_name = "database/database.db"
@@ -246,16 +304,11 @@ async def resend_telegram_messages(session: Session):
     for space in spaces:
         if not space.telegram_enabled:
             continue
-        latest_event = session.exec(
-            select(SpaceEvent)
-            .where(SpaceEvent.space_id == space.id)
-            .order_by(SpaceEvent.timestamp.desc())
-        ).first()
+        latest_event = latest_space_event(session, space.id)
         if not latest_event:
             continue
         try:
-            delete_telegram_message(space, session)
-            send_telegram_message(space, latest_event, session)
+            await asyncio.to_thread(publish_telegram_state, space.id, latest_event.id)
             logger.info(
                 f"Resent Telegram message for space '{space.name}' with state '{latest_event.state.value}'.")
         except Exception as e:
@@ -268,10 +321,7 @@ async def check_keepalives(session):
     spaces = session.exec(select(Space)).all()
     logger.info(f"Stage 0. Keepalive checking.")
     for space in spaces:
-        latest_event = session.exec(
-            select(SpaceEvent).where(SpaceEvent.space_id ==
-                                     space.id).order_by(SpaceEvent.timestamp.desc())
-        ).first()
+        latest_event = latest_space_event(session, space.id)
         logger.info(
             f"Stage 1. Keepalive checking for space '{space.name}' '{latest_event.state}'.")
         if latest_event.state != SpaceEventState.UNKNOWN:
@@ -289,8 +339,7 @@ async def check_keepalives(session):
                 session.commit()
                 logger.info(
                     f"Space {space.name} state set to UNKNOWN due to missing keepalive.")
-                delete_telegram_message(space, session)
-                send_telegram_message(space, unknown_event, session)
+                await asyncio.to_thread(publish_telegram_state, space.id, unknown_event.id)
     logger.info(f"Stage 5. Keepalive check ended.")
 
 
@@ -337,8 +386,7 @@ def status(request: Request, session: SessionDep):
     spaces_dict = {}
     spaces_counter = 1
     for space_idx in spaces_from_db:
-        latest_event = session.exec(select(SpaceEvent).where(
-            SpaceEvent.space_id == space_idx.id).order_by(SpaceEvent.timestamp.desc())).first()
+        latest_event = latest_space_event(session, space_idx.id)
         if latest_event and latest_event.state == SpaceEventState.OPEN:
             current_state = "open"
         elif latest_event and latest_event.state == SpaceEventState.CLOSED:
@@ -369,8 +417,7 @@ async def open_space(space_id: int, session: SessionDep, credentials: Annotated[
     session.commit()
     session.refresh(event)
     logger.info(f"Space {space.name} opened.")
-    delete_telegram_message(space, session)
-    background_tasks.add_task(send_telegram_message, space, event, session)
+    background_tasks.add_task(publish_telegram_state, space.id, event.id)
     return event
 
 
@@ -385,8 +432,7 @@ async def close_space(space_id: int, session: SessionDep, credentials: Annotated
     session.commit()
     session.refresh(event)
     logger.info(f"Space {space.name} closed.")
-    delete_telegram_message(space, session)
-    background_tasks.add_task(send_telegram_message, space, event, session)
+    background_tasks.add_task(publish_telegram_state, space.id, event.id)
     return event
 
 
@@ -400,17 +446,13 @@ def keepalive_space_open(space_id: int, session: SessionDep, credentials: Annota
     session.add(space)
     session.commit()
 
-    latest_event = session.exec(
-        select(SpaceEvent).where(SpaceEvent.space_id ==
-                                 space.id).order_by(SpaceEvent.timestamp.desc())
-    ).first()
+    latest_event = latest_space_event(session, space.id)
     if latest_event.state != SpaceEventState.OPEN:
         event = SpaceEvent(space_id=space_id, state=SpaceEventState.OPEN)
         session.add(event)
         session.commit()
         session.refresh(event)
-        delete_telegram_message(space, session)
-        background_tasks.add_task(send_telegram_message, space, event, session)
+        background_tasks.add_task(publish_telegram_state, space.id, event.id)
     logger.info(f"Received keepalive from space {space.name}. State open.")
     return {"message": "Keepalive received"}
 
@@ -424,17 +466,13 @@ def keepalive_space_close(space_id: int, session: SessionDep, credentials: Annot
     space.last_keepalive = datetime.now(timezone.utc)
     session.add(space)
     session.commit()
-    latest_event = session.exec(
-        select(SpaceEvent).where(SpaceEvent.space_id ==
-                                 space.id).order_by(SpaceEvent.timestamp.desc())
-    ).first()
+    latest_event = latest_space_event(session, space.id)
     if latest_event.state != SpaceEventState.CLOSED:
         event = SpaceEvent(space_id=space_id, state=SpaceEventState.CLOSED)
         session.add(event)
         session.commit()
         session.refresh(event)
-        delete_telegram_message(space, session)
-        background_tasks.add_task(send_telegram_message, space, event, session)
+        background_tasks.add_task(publish_telegram_state, space.id, event.id)
     logger.info(f"Received keepalive from space {space.name}. State closed.")
     return {"message": "Keepalive received"}
 
@@ -448,10 +486,7 @@ def space_api(space_name: str, session: SessionDep, credentials: Optional[HTTPBa
         if not credentials or not authenticate(credentials, session, space):
             raise HTTPException(
                 status_code=401, detail="Unauthorized")
-    latest_event = session.exec(
-        select(SpaceEvent).where(SpaceEvent.space_id ==
-                                 space.id).order_by(SpaceEvent.timestamp.desc())
-    ).first()
+    latest_event = latest_space_event(session, space.id)
     state = latest_event.state if latest_event else SpaceEventState.UNKNOWN
     space_json = {
         "api_compatibility": ["15"],
