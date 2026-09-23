@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import logging
 from contextlib import asynccontextmanager
 import asyncio
@@ -102,6 +104,27 @@ def authenticate(credentials: HTTPBasicCredentials, session: Session, space: Spa
 
 
 TELEGRAM_TIMEOUT = 10  # seconds
+TELEGRAM_RETRIES = 4  # retries after the initial attempt
+TELEGRAM_BACKOFF_FACTOR = 1  # seconds: 0, 2, 4, 8 between attempts
+TELEGRAM_BACKOFF_MAX = 8  # seconds
+
+# Telegram drops connections now and then (connection reset, read timeout) and
+# occasionally answers 429/5xx. Retry those with exponential backoff; anything
+# else (bad token, message already gone) is permanent and reported as before.
+telegram_retry = Retry(
+    total=TELEGRAM_RETRIES,
+    backoff_factor=TELEGRAM_BACKOFF_FACTOR,
+    backoff_max=TELEGRAM_BACKOFF_MAX,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset({"POST"}),
+    raise_on_status=False,
+)
+
+# One pooled session for all Telegram traffic. Sends for a single space are
+# serialized by its lock; urllib3's pool handles the cross-space concurrency.
+telegram_session = requests.Session()
+telegram_session.mount(
+    "https://api.telegram.org", HTTPAdapter(max_retries=telegram_retry))
 
 # One lock per space, so that a quick close/open flap cannot interleave one
 # request's delete with another request's send.
@@ -171,7 +194,8 @@ def send_telegram_message(space, space_event, session):
         "text": message
     }
     try:
-        response = requests.post(url, data=payload, timeout=TELEGRAM_TIMEOUT)
+        response = telegram_session.post(
+            url, data=payload, timeout=TELEGRAM_TIMEOUT)
         response.raise_for_status()
         # Save the message ID to the event
         resp_json = response.json()
@@ -213,7 +237,8 @@ def delete_telegram_message(space, session):
         "message_id": message_id
     }
     try:
-        response = requests.post(url, data=payload, timeout=TELEGRAM_TIMEOUT)
+        response = telegram_session.post(
+            url, data=payload, timeout=TELEGRAM_TIMEOUT)
         response.raise_for_status()
         logger.info(
             f"Telegram message deleted successfully for space '{space.name}'.")
@@ -272,6 +297,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+
 async def scheduled_task():
     while True:
         try:
@@ -280,7 +306,6 @@ async def scheduled_task():
                 await check_keepalives(session)
         except Exception as e:
             logger.error(e)
-
 
 
 RESEND_INTERVAL = int(
@@ -296,6 +321,7 @@ async def scheduled_resend_task():
                 await resend_telegram_messages(session)
         except Exception as e:
             logger.error(e)
+
 
 async def resend_telegram_messages(session: Session):
     """Delete and resend the latest Telegram message for each space."""
